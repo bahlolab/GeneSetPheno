@@ -9,7 +9,7 @@ GeneSetPheno is a user-friendly graphical interface application designed to inte
 https://shiny.wehi.edu.au/han.ji/GeneSetPheno/
 
 
-**Reference:**
+# Reference
 
 *AstraZeneca PheWAS Portal*
 
