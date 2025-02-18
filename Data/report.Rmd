@@ -1,0 +1,2446 @@
+---
+title: "GeneSetPheno Exploration"
+output:
+  html_document:
+  code_folding: "hide"
+  df_print: paged
+params:
+  n: NA
+---
+
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message=FALSE,warning=FALSE)
+```
+
+
+```{r}
+# ---
+# title: "GeneSetPheno - Gene(s) Report"
+# author: "Jiru Han"
+# output:
+#   html_document:
+#     toc: true
+#     toc_float: true
+#     toc_depth: 3
+#   code_folding: "hide"
+#   df_print: paged
+# ---
+
+```
+
+
+```{r, include=FALSE}
+#knitr::opts_chunk$set(echo = FALSE,message=FALSE,warning=FALSE)
+```
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(shiny)
+library(rsconnect)
+library(plotly)
+library(shinythemes)
+library(ggpubr)
+library(DT)
+library(flextable)
+library(shinydashboard)
+library(shinyWidgets)
+library(data.table)
+library(ggsci)
+library(rmarkdown)
+library(RColorBrewer)
+library(randomcoloR)
+# library(AnnotationDbi)
+# library(clusterProfiler)
+# library(org.Hs.eg.db)
+library(ComplexHeatmap)
+library(genekitr)
+library(PhenoExam)
+library(ggrepel)
+library(ggh4x)
+library(VennDiagram)
+library(rstatix)
+#knitr::opts_chunk$set(tidy="styler")
+#knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+# <span style="color:black">About</span>
+
+
+This is a web tutorial that demonstrates the usage and analysis results of the GeneSetPheno application.
+
+
+To demonstrate the functionality and application scope of GeneSetPheno, we applied the tool to a sample gene list dataset to explore associations between gene sets and phenotypes, focusing on two neurodegenerative diseases with similar symptoms: Early-onset Dementia (EOD) and Early-onset Parkinson's Disease (EOPD). For this example dataset, we downloaded the green gene lists, representing genes with significant clinical evidence, from PanelApp Australia (https://panelapp.agha.umccr.org). Specifically, we obtained 62 green list EOD genes (Version 1.24) and 93 green list EOPD genes (Version 2.3). The EOD panel includes genes linked to Alzheimer's disease, frontotemporal dementia, other forms of dementia, and adult-onset cognitive decline. The EOPD panel consists of genes associated with early-onset Parkinson's disease and related conditions where parkinsonism is a key feature.
+
+
+The data for this case study can be accessed on the GeneSetPheno R Shiny homepage by clicking the 'Download Example Input File' button 
+
+
+<hr>
+
+```{r}
+plot_exception <-function(
+    ...,
+    sep=" ",
+    type=c("message","warning","cat","print"),
+    color="auto",
+    console=TRUE,
+    size = 6){
+  type=match.arg(type)
+  txt = paste(...,collapse=sep)
+  if(console){
+    if(type == "message") message(txt)
+    if(type == "warning") warning(txt)
+    if(type == "cat") cat(txt)
+    if(type == "print") print(txt)
+  }
+  if(color =="auto") color <- if(type == "cat") "black" else "red"
+  if(txt == "warning") txt <- paste("warning:",txt)
+  print(ggplot2::ggplot() +
+          ggplot2::geom_text(ggplot2::aes(x=0,y=0,label=txt),color=color,size=size) +
+          ggplot2::theme_void())
+  invisible(NULL)
+}
+
+```
+
+
+```{r}
+plotly_exception <- function(
+    ...,
+    sep = " ",
+    type = c("message", "warning", "cat", "print"),
+    color = "auto",
+    console = TRUE,
+    size = 6
+) {
+  # Match argument for type
+  type <- match.arg(type)
+  
+  # Combine the inputs into a single text string
+  txt <- paste(..., collapse = sep)
+  
+  # Print the message to the console if console = TRUE
+  if (console) {
+    switch(type,
+           message = message(txt),
+           warning = warning(txt),
+           cat = cat(txt, "\n"),
+           print = print(txt)
+    )
+  }
+  
+  # Set color automatically based on type if color is "auto"
+  if (color == "auto") {
+    color <- if (type == "cat") "black" else "red"
+  }
+  
+  # Modify the warning text if necessary
+  if (type == "warning") txt <- paste("warning:", txt)
+  
+  # Create the ggplot object
+  p <- ggplot2::ggplot() +
+    ggplot2::geom_text(ggplot2::aes(x = 0, y = 0, label = txt), color = color, size = size) +
+    ggplot2::theme_void()
+  
+  # Convert ggplot to plotly and print the plot
+  p_interactive <- plotly::ggplotly(p)
+  print(p_interactive)
+  #invisible(NULL)  # Return NULL invisibly
+}
+
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+#Gene of interest list
+gene_raw <- read.csv("ExampleGeneList.csv")
+#Load data
+#Data
+#AstraZeneca PheWAS Portal
+az_gene_binary_raw <- fread("AZ_Gene-level_Binary_1e-08.csv")
+az_gene_continuous_raw <- fread("AZ_Gene-level_Continuous_1e-08.csv")
+az_var_binary_raw <- fread("AZ_Variant-level_Binary_1e-08_gnomAD_clinvar.csv")
+az_var_continuous_raw <- fread("AZ_Variant-level_Continuous_1e-08_gnomAD_clinvar.csv")
+#FinnGen 
+finngen_raw <- fread("Finngen11_Result_5e-8_SmallestPvalueGene_gnomAD_clinvar.csv")
+#GWAS Catalog
+gwas_raw <- fread("gwas_catalog_v1.0.2-associations_e112_r2024-07-08.tsv")
+#EFO MAP
+efo_raw <- fread("trait_mappings.txt")
+#gnomAD GWAS Catalog
+gnomad_raw <- fread("gnomAD_GWAS.csv")
+#Clinvar
+clinvar_raw <- fread("clinvar_extracted_data.txt.gz")
+```
+
+
+# <span style="color:blue">Gene Summary</span> {.tabset}
+
+This module enables the extraction of comprehensive gene set information, including Entrez, Ensembl, and Uniprot IDs, genomic locations, gene function summaries, gene sequences, transcript counts, gene biotypes, and additional details. Additionally, it summarizes significant gene-phenotype associations from databases such as AZPheWAS, GWAS Catalog, and FinnGen, identifying the number of associated genes and presenting the results in both summary tables and figures.
+
+Significant Association P-value Threshold:
+
+AZPheWAS (p ≤ 1e-8)
+
+GWAS Catalog (p ≤ 5e-8)
+
+FinnGen (p ≤ 5e-8)
+
+
+## Gene Info
+
+Detailed gene set information 
+
+```{r,message=FALSE,warning=FALSE}
+#gene_raw <- gene_raw()
+gene_info_id <- gene_raw$Gene
+gene_info <- genInfo(gene_info_id, org = "hs", unique = TRUE)
+colnames(gene_info)[1] <- "Gene"
+gene_info <- gene_info %>% 
+      full_join(gene_raw) %>% 
+      dplyr::select(Group,Gene,gene_name,chr,start,end, width,strand,symbol,hgnc_id, entrezid,ensembl,uniprot,summary,
+                    gc_content,gene_biotype,omim)
+gene_info <- gene_info %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  arrange(Group)
+
+datatable(gene_info %>%
+        mutate(across(everything(), ~ replace(., is.na(.), ""))), extensions = 'Buttons',rownames = FALSE,options = list(
+  dom = 'Blfrtip',
+  buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+  columnDefs = list(list(
+  targets = c(2,11,12,13),
+  render = JS(
+    "function(data, type, row, meta) {",
+    "return type === 'display' && data.length > 6 ?",
+    "'<span title=\"' + data + '\">' + data.substr(0, 6) + '...</span>' : data;",
+    "}")
+))), callback = JS('table.page(3).draw(false);'))
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+```{r,warning=FALSE,message=FALSE}
+gene_venn <- gene_raw
+# Identify the unique groups
+unique_groups <- unique(gene_venn$Group)
+# Create a list of sets based on the Group column
+sets <- split(gene_venn$Gene, gene_venn$Group)
+# Generate a palette of colors based on the number of unique groups
+set.seed(1111)
+n1 <- length(unique(unique_groups))
+colors <- distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+
+# Generate the Venn diagram with custom colors
+venn.plot <- venn.diagram(
+  x = sets,
+  category.names = unique_groups,
+  filename = NULL,
+  output = TRUE,
+  disable.logging = FALSE,
+  main.cex = 2,
+  main="Venn Diagram of Gene List Sets",
+  fill = colors,  # Dynamic color assignment
+  alpha = 0.5,  # Transparency level
+  cat.col = colors,  # Colors for category names
+  cat.cex = 1.5,  # Size of category names
+  cat.fontface = "bold",  # Bold category names
+  cex = 1.5,  # Size of numbers in the diagram
+  fontface = "bold",  # Bold numbers
+  lwd = 2  # Line width of the circles
+)
+
+# To plot the Venn diagram
+grid.draw(venn.plot)
+```
+
+<br>
+<br>
+<br>
+<br>
+<hr>
+<br>
+
+
+## Summary Table of Significant Gene–Phenotype Associations
+
+A table summarizing significant gene-phenotype associations from multiple databases
+
+```{r,message=FALSE,warning=FALSE}
+#AstraZeneca PheWAS Portal Gene
+az_gene <- unique(c(unique(az_gene_binary_raw$Gene),unique(az_gene_continuous_raw$Gene),unique(az_var_binary_raw$Gene),unique(az_var_continuous_raw$Gene)))
+az_gene_list <- gene_raw %>% 
+      filter(Gene %in% az_gene) %>% 
+      mutate(AZ="AstraZeneca PheWAS Portal")
+
+if (nrow(az_gene_list)!=0) {
+  az_gene_list <- az_gene_list
+} else {
+  az_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,AZ=NA)
+}
+
+
+#GWAS Catalog
+gwas_gene <- unlist(strsplit(gwas_raw$MAPPED_GENE, split= " - ", fixed=TRUE))
+gwas_gene <- unique(gwas_gene)
+gwas_gene_list <- gene_raw %>% 
+      filter(Gene %in% gwas_gene) %>% 
+      mutate(GWASCatalog="GWAS Catalog")
+
+if (nrow(gwas_gene_list)!=0) {
+  gwas_gene_list <- gwas_gene_list
+} else {
+  gwas_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,GWASCatalog=NA)
+}
+
+
+#FinnGen 
+finngen_gene <- unlist(strsplit(finngen_raw$Gene, split= ",", fixed=TRUE))
+finngen_gene <- unique(finngen_gene)
+finngen_gene_list <- gene_raw %>% 
+      filter(Gene %in% finngen_gene) %>% 
+      mutate(FinnGen="FinnGen")
+
+if (nrow(finngen_gene_list)!=0) {
+  finngen_gene_list <- finngen_gene_list
+} else {
+  finngen_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,FinnGen=NA)
+}
+
+#Combine Databases
+gene_list_summary_tab <- Reduce(full_join,list(gene_raw, az_gene_list, finngen_gene_list,gwas_gene_list))
+
+gene_num <- as.data.frame(table(gene_list_summary_tab$Group))
+colnames(gene_num) <- c("Group", "Gene Number")
+
+if (all(is.na(gene_list_summary_tab$AZ))) {
+  az_num <- data.frame(Group=gene_raw$Group,N=0)
+  colnames(az_num) <- c("Group", "AstraZeneca PheWAS Portal Significant Association (#N Gene)")
+  
+} else {
+ az_num<- as.data.frame(table(gene_list_summary_tab$Group,gene_list_summary_tab$AZ)) %>% 
+      dplyr::select(-Var2)
+colnames(az_num) <- c("Group", "AstraZeneca PheWAS Portal Significant Association (#N Gene)") 
+  
+}
+
+
+
+if (all(is.na(gene_list_summary_tab$GWASCatalog))) {
+  gwas_num <- data.frame(Group=gene_raw$Group,N=0)
+  colnames(gwas_num) <- c("Group", "GWAS Catalog Significant Association (#N Gene)")
+  
+} else {
+ gwas_num<- as.data.frame(table(gene_list_summary_tab$Group,gene_list_summary_tab$GWASCatalog)) %>% 
+      dplyr::select(-Var2)
+colnames(gwas_num) <- c("Group", "GWAS Catalog Significant Association (#N Gene)")
+}
+
+
+if (all(is.na(gene_list_summary_tab$FinnGen))) {
+  finngen_num <- data.frame(Group=gene_raw$Group,N=0)
+  colnames(finngen_num) <- c("Group", "Finngen Significant Association (#N Gene)")
+  
+} else {
+ finngen_num<- as.data.frame(table(gene_list_summary_tab$Group,gene_list_summary_tab$FinnGen)) %>% 
+      dplyr::select(-Var2)
+colnames(finngen_num) <- c("Group", "Finngen Significant Association (#N Gene)")
+}
+
+gene_list_summary_tab_num <- Reduce(full_join,list(gene_num, az_num, gwas_num,finngen_num))
+total <- data.frame(Group="Total",
+                        `Gene Number`=length(unique(gene_list_summary_tab$Gene)),
+                        `AstraZeneca PheWAS Portal Significant Association (#N Gene)` = as.list(gene_list_summary_tab %>% filter(is.na(AZ)==FALSE) %>% summarise(n=length(unique(Gene))))$n,
+                        `GWAS Catalog Significant Association (#N Gene)`= as.list(gene_list_summary_tab %>% filter(is.na(GWASCatalog)==FALSE) %>% summarise(n=length(unique(Gene))))$n,
+                        `Finngen Significant Association (#N Gene)` = as.list(gene_list_summary_tab %>% filter(is.na(FinnGen)==FALSE) %>% summarise(n=length(unique(Gene))))$n
+    )
+colnames(total) <- colnames(gene_list_summary_tab_num)
+gene_list_summary_tab_num <- do.call(rbind,list(gene_list_summary_tab_num,total))
+
+ft <- flextable(gene_list_summary_tab_num,cwidth = 1.5)
+ft <- theme_vanilla(ft)
+ft <- color(ft, part = "footer", color = "#666666")
+ft <- set_caption(ft, caption = "Overview of Genes with Significant Associations Across Different Databases")
+ft %>% 
+        autofit() %>%
+        htmltools_value()
+      
+
+```
+
+
+
+
+
+<br>
+<br>
+
+
+
+## Summary Plot of Significant Gene–Phenotype Associations
+
+A summary plot visualizing these associations for the gene sets
+
+```{r,message=FALSE,warning=FALSE,fig.height=16,fig.width=10}
+#AZPheWAS
+az_gene <- unique(c(unique(az_gene_binary_raw$Gene),unique(az_gene_continuous_raw$Gene),unique(az_var_binary_raw$Gene),unique(az_var_continuous_raw$Gene)))
+az_gene_list <- gene_raw %>% 
+        filter(Gene %in% az_gene) %>% 
+        mutate(AZ="AstraZeneca PheWAS Portal")
+
+if (nrow(az_gene_list)!=0) {
+  az_gene_list <- az_gene_list
+} else {
+  az_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,AZ=NA)
+}
+
+
+#GWAS Catalog
+gwas_gene <- unlist(strsplit(gwas_raw$MAPPED_GENE, split= " - ", fixed=TRUE))
+gwas_gene <- unique(gwas_gene)
+gwas_gene_list <- gene_raw %>% 
+      filter(Gene %in% gwas_gene) %>% 
+      mutate(GWASCatalog="GWAS Catalog")
+
+if (nrow(gwas_gene_list)!=0) {
+  gwas_gene_list <- gwas_gene_list
+} else {
+  gwas_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,GWASCatalog=NA)
+}
+
+
+      
+#FinnGen 
+finngen_gene <- unlist(strsplit(finngen_raw$Gene, split= ",", fixed=TRUE))
+finngen_gene <- unique(finngen_gene)
+finngen_gene_list <- gene_raw %>% 
+      filter(Gene %in% finngen_gene) %>% 
+      mutate(FinnGen="FinnGen")
+
+if (nrow(finngen_gene_list)!=0) {
+  finngen_gene_list <- finngen_gene_list
+} else {
+  finngen_gene_list <- data.frame(Group=gene_raw$Group,Gene=gene_raw$Gene,FinnGen=NA)
+}
+
+      
+gene_list_summary_tab <- Reduce(full_join,list(gene_raw, az_gene_list, finngen_gene_list,gwas_gene_list))
+gene_list_summary_pheat <- as.data.frame(gene_list_summary_tab)
+for (i in 3:ncol(gene_list_summary_pheat)) {
+        gene_list_summary_pheat[,i][is.na(gene_list_summary_pheat[,i])==FALSE] <- "Significant Association"
+        gene_list_summary_pheat[,i][is.na(gene_list_summary_pheat[,i])] <- "No Significant Association"
+}
+      
+gene_list_summary_pheat <- gene_list_summary_pheat %>% 
+        pivot_longer(cols = -c(Group,Gene))
+colnames(gene_list_summary_pheat) <- c("Group","Gene","Databases", "Type")
+gene_list_summary_pheat$Type <- factor(gene_list_summary_pheat$Type,
+                                             levels = c("Significant Association","No Significant Association"))
+      
+
+
+gene_list_summary_pheat <- gene_list_summary_pheat %>% 
+  group_by(Gene,Databases) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene,Databases) %>% 
+  dplyr::slice(1)
+
+
+gene_list_summary_pheat %>% 
+  ggplot(aes(x=Databases,y=Gene,fill=Type)) + 
+  geom_tile(size=0.5, color="black",alpha=0.5)+
+  scale_fill_manual(values = c("#89ABE3FF", "#b8b8b8")) +
+  ggpubr::theme_classic2()+
+  facet_grid(Group~., scales = "free",space = "free")+
+  theme(strip.text.y = element_text(angle = 0))
+
+
+
+```
+
+
+
+
+
+# <span style="color:blue">Gene-Phenotype Associations</span> {.tabset}
+
+This module in GeneSetPheno provides a detailed summary of gene-phenotype associations. Significant associations from AZPheWAS, GWAS Catalog, and FinnGen databases are summarized for the gene set. This information is presented in an interactive table and figure, offering comprehensive details for each gene, including all associated phenotypes, phenotype categories, and variants.
+
+
+
+```{r}
+#AstraZeneca PheWAS Portal
+az_gene_binary_flt <- az_gene_binary_raw %>% 
+  filter(Gene %in% gene_raw$Gene)
+az_gene_continuous_flt <- az_gene_continuous_raw %>% 
+  filter(Gene %in% gene_raw$Gene)
+az_var_binary_flt <- az_var_binary_raw %>% 
+  filter(Gene %in% gene_raw$Gene)
+az_var_continuous_flt <- az_var_continuous_raw %>% 
+  filter(Gene %in% gene_raw$Gene)
+#GWAS Catalog
+gwas_raw_flt <- gwas_raw %>% 
+  mutate(Gene=MAPPED_GENE) %>% 
+  separate_rows(Gene, sep = " - ",convert = TRUE) %>% 
+  filter(Gene %in% gene_raw$Gene)
+#FinnGen 
+finngen_raw_flt <- finngen_raw %>% 
+  mutate(Gene_multi=Gene) %>% 
+  separate_rows(Gene, sep = ",",convert = TRUE) %>% 
+  filter(Gene %in% gene_raw$Gene)
+```
+
+
+## Summary Plot of Significant Gene–Phenotype Associations
+
+A summary plot that displays significant gene–phenotype associations for the gene sets. Users can easily access detailed information about each gene’s phenotype associations across databases, such as phenotype categories, by hovering over a gene or database.
+
+
+<br>
+
+```{r,fig.height=15,fig.width=12}
+#AstraZeneca PheWAS Portal
+if (nrow(az_gene_binary_flt) != 0) {
+  az_gene_binary_flt_asso <- az_gene_binary_flt %>% 
+          mutate(Variant=NA) %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category)
+} else {
+  az_gene_binary_flt_asso <- data.frame(Gene=unique(gene_raw$Gene),
+                                        Variant=NA,
+                                        Phenotype=NA,
+                                        Category=NA
+                                        )
+}
+
+#az_gene_continuous_flt
+if (nrow(az_gene_continuous_flt) != 0) {
+  az_gene_continuous_flt_asso <- az_gene_continuous_flt %>% 
+          mutate(Variant=NA) %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category) 
+} else {
+  az_gene_continuous_flt_asso <- data.frame(Gene=unique(gene_raw$Gene),
+                                        Variant=NA,
+                                        Phenotype=NA,
+                                        Category=NA
+                                        )
+}
+
+#az_var_binary_flt
+
+if (nrow(az_var_binary_flt) != 0) {
+  az_var_binary_flt_asso <- az_var_binary_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category) 
+  
+} else {
+  az_var_binary_flt_asso <- data.frame(Gene=unique(gene_raw$Gene),
+                                        Variant=NA,
+                                        Phenotype=NA,
+                                        Category=NA
+                                        )
+}
+
+#az_var_continuous_flt       
+if (nrow(az_var_continuous_flt) != 0) {
+  az_var_continuous_flt_asso <- az_var_continuous_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category)
+  
+} else {
+  az_var_continuous_flt_asso <- data.frame(Gene=unique(gene_raw$Gene),
+                                        Variant=NA,
+                                        Phenotype=NA,
+                                        Category=NA
+                                        )
+}
+
+
+az_gene_asso <- do.call(rbind,list(az_gene_binary_flt_asso,az_gene_continuous_flt_asso,az_var_binary_flt_asso,az_var_continuous_flt_asso))
+        
+az_gene_asso <- az_gene_asso %>% 
+          group_by(Gene) %>%
+          summarise(Phenotype=paste0(na.omit(unique(Phenotype)),collapse = "; "),
+                    Category=paste0(na.omit(unique(Category)),collapse = "; "), 
+                    Variant=paste0(na.omit(unique(Variant)),collapse = "; ")
+          ) %>%
+          ungroup()
+
+colnames(az_gene_asso) <- c("Gene","AZPhenotype","AZCategory","AZVariant")
+
+#GWAS Catalog
+#Mapping efo id to trait category
+efo <- efo_raw %>% 
+          dplyr::select(`Parent term`,`EFO URI`) %>% 
+          group_by(`EFO URI`) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+      
+
+if (nrow(gwas_raw_flt) !=0) {
+  gwas_raw_flt_asso <- gwas_raw_flt %>% 
+          mutate(`EFO URI`=MAPPED_TRAIT_URI) %>% 
+          separate_rows(`EFO URI`, sep = ", ",convert = TRUE) %>% 
+          left_join(efo) %>% 
+          group_by(Gene) %>% 
+          summarise(Phenotype=paste0(na.omit(unique(MAPPED_TRAIT)),collapse = "; "),
+                    Category=paste0(na.omit(unique(`Parent term`)),collapse = "; "),
+                    Variant=paste0(na.omit(unique(SNPS)),collapse = "; ")
+          ) %>%
+          ungroup()
+colnames(gwas_raw_flt_asso) <- c("Gene","GWASCatalogPhenotype","GWASCatalogCategory","GWASCatalogVariant")
+
+} else {
+  gwas_raw_flt_asso <- data.frame(
+    Gene=unique(gene_raw$Gene),
+    GWASCatalogPhenotype=NA,
+    GWASCatalogCategory=NA,
+    GWASCatalogVariant=NA
+
+  )
+}
+
+
+
+        
+#FinnGen 
+
+
+if (nrow(finngen_raw_flt) != 0) {
+  
+  finngen_raw_flt_asso <- finngen_raw_flt %>% 
+          dplyr::select(Gene,phenotype,category,rsids) %>% 
+          group_by(Gene) %>% 
+          summarise(Phenotype=paste0(na.omit(unique(phenotype)),collapse = "; "),
+                    Category=paste0(na.omit(unique(category)),collapse = "; "),
+                    Variant=paste0(na.omit(unique(rsids)),collapse = "; ")
+          ) %>%
+          ungroup()
+colnames(finngen_raw_flt_asso) <- c("Gene","FinnGenPhenotype","FinnGenCategory","FinnGenVariant")
+
+} else {
+  finngen_raw_flt_asso  <- data.frame(
+    Gene=unique(gene_raw$Gene),
+    FinnGenPhenotype=NA,
+    FinnGenCategory=NA,
+    FinnGenVariant=NA
+  )
+}
+
+
+#overlapping gene
+gene_change <- gene_raw %>% 
+  group_by(Gene) %>% 
+  summarise(Group=paste0(na.omit(unique(Group)),collapse = "; ")
+          ) %>%
+          ungroup() %>% 
+  dplyr::select(Group,Gene)
+
+
+summary_gene <- gene_change %>% 
+          left_join(az_gene_asso) %>% 
+          left_join(gwas_raw_flt_asso) %>% 
+          left_join(finngen_raw_flt_asso)
+summary_gene[summary_gene==''] <- NA
+
+summary_gene_pheat <- summary_gene %>% 
+          dplyr::select(Group,Gene,AZCategory,GWASCatalogCategory,FinnGenCategory)
+summary_gene_pheat <- summary_gene_pheat %>% 
+          pivot_longer(cols = -c(Group,Gene))
+colnames(summary_gene_pheat) <- c("Group","Gene","Databases", "Category")
+summary_gene_pheat <- summary_gene_pheat %>% 
+          mutate(Type = ifelse(is.na(Category)==FALSE, "Significant Association","No Significant Association"))
+        
+summary_gene_pheat$Type <- factor(summary_gene_pheat$Type,
+                                          levels = c("Significant Association","No Significant Association"))
+        
+        
+
+
+p <- summary_gene_pheat %>% 
+  ggplot(aes(x=Databases,y=Gene,fill=Type,
+             label=Category
+             )) + 
+  geom_tile(size=0.5, color="black",alpha=0.7)+
+  scale_fill_manual(values = c("#89ABE3FF", "#b8b8b8")) +
+  ggpubr::theme_classic2()+
+  facet_grid(Group~Databases, scales = "free",space = "free_y")+
+  theme(strip.text.y = element_text(angle = 0)) 
+
+ggplotly(p,tooltip=c("Category")) %>%
+  layout(autosize = T, width = 1200, height = 2000)
+
+
+
+
+```
+
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+<hr>
+<br>
+
+
+A cluster plot showing significant gene–phenotype associations across databases for the gene sets.
+
+<hr>
+
+```{r,fig.height=20,fig.width=12}
+cluster_summary_gene <- summary_gene_pheat %>% 
+  mutate(Type=ifelse(Type=="Significant Association",1,0)) %>% 
+  dplyr::select(-Category)
+cluster_summary_gene_pheat <- cluster_summary_gene %>% 
+          pivot_wider(
+            names_from = "Databases",
+            values_from = "Type",
+            values_fill = 0
+          ) %>% 
+  as.data.frame()
+        
+rownames(cluster_summary_gene_pheat) <- cluster_summary_gene_pheat$Gene
+
+ if (nrow(cluster_summary_gene_pheat)>0) {
+          cluster_summary_gene_pheat <- cluster_summary_gene_pheat
+          ann <- data.frame(cluster_summary_gene_pheat$Group)
+          rownames(ann) <- cluster_summary_gene_pheat$Gene
+          colnames(ann) <- "Group"
+          cluster_summary_gene_pheat <- cluster_summary_gene_pheat[,-c(1,2)]
+          
+          set.seed(1111)
+          n1 <- length(unique(ann$Group))
+          col1=distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+          names(col1) <- unique(ann$Group)
+          
+          ann_colors = list(
+            Group = col1
+          )
+          
+          ht <- ComplexHeatmap::pheatmap(cluster_summary_gene_pheat,
+                                   angle_col = "0",
+                                   name=str_wrap("Significant association within the gene",20),
+                                   row_labels = str_wrap(rownames(cluster_summary_gene_pheat),30),
+                                   annotation_row = ann,
+                                   color = c("white", "red"),
+                                   legend = F,
+                                   main = "Gene Summary Plot",
+                                   annotation_colors = ann_colors)
+          
+          ComplexHeatmap::draw(ht)
+        } else {
+          plot_exception("No significant association within the gene list")
+        }
+
+```
+
+<br>
+
+<br>
+<hr>
+<br>
+
+
+## Summary Table of Significant Gene–Phenotype Associations
+
+A table that displays significant gene–phenotype associations for the gene sets. Users can access all relevant phenotype categories, phenotypes, and variants across multiple databases for each gene, offering a clear and comprehensive overview of significant gene–phenotype associations.
+
+
+<br>
+
+```{r}
+summary_gene_tab <- summary_gene
+summary_gene_tab %>% 
+  DT::datatable(escape = FALSE,
+                rownames = FALSE,
+                plugins = "ellipsis",
+                extensions = 'Buttons',
+  options = list(
+  
+    buttons = list(
+  list(extend = "csv", text = "Download Full Results", filename = "Full_data",
+       exportOptions = list(
+         modifier = list(page = "all"),
+         orthogonal = "export"
+       )
+  )
+),
+    dom = 'Bfrtip',
+      buttons = c('copy', 'csv'),
+    columnDefs = list(list(
+      targets = c(2:10),
+      render = JS("$.fn.dataTable.render.ellipsis(17, false )")
+    ))
+  )) 
+
+
+```
+
+
+
+<br>
+
+<br>
+
+<br>
+
+<br>
+
+<hr>
+
+
+
+
+# <span style="color:blue">Variant-Phenotype Associations</span>
+
+This module focuses on four key components: a summary table of variant-phenotype associations, AZPheWAS, GWAS Catalog, and Finngen, with the aim of displaying significant associations between genetic variants and various phenotypes from different databases. 
+
+
+## Summary Table of Significant Variant–Phenotype Associations
+
+The summary table provides a comprehensive overview of variant associations from various databases, including details like the gene list group, gene symbol, variant, rsID, allele frequency in gnomAD, link-outs to the gnomAD browser, and clinical significance from ClinVar. It also consolidates significant phenotype data from AZPheWAS, GWAS Catalog, and Finngen, along with additional information on phenotype categories.
+
+```{r}
+#AstraZeneca PheWAS Portal
+az_var_binary_flt_asso <- az_var_binary_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category,rsID,AF, ClinVar) 
+az_var_continuous_flt_asso <- az_var_continuous_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category,rsID,AF, ClinVar)
+az_var_asso <- do.call(rbind,list(az_var_binary_flt_asso,az_var_continuous_flt_asso))
+az_var_asso <- az_var_asso %>% 
+          mutate(gnomADLink=paste0("<a target = '_blank' href= ", "https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4",">","https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4","</a>"))
+        
+az_var_asso <- az_var_asso %>% 
+          group_by(Gene,Variant,rsID,AF,gnomADLink,ClinVar) %>%
+          summarise(
+            Category=paste0(na.omit(unique(Category)),collapse = "; "),
+            Phenotype=paste0(na.omit(unique(Phenotype)),collapse = "; ")
+          ) %>%
+          ungroup()
+colnames(az_var_asso) <- c("Gene","Variant","rsID","AF","gnomADLink","ClinVar","AZCategory","AZPhenotype")
+        
+#GWAS Catalog
+#Mapping efo id to trait category
+efo <- efo_raw %>% 
+          dplyr::select(`Parent term`,`EFO URI`) %>% 
+          group_by(`EFO URI`) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+       
+if (nrow(gwas_raw_flt) > 0) {
+ gwas_raw_flt_asso <- gwas_raw_flt %>% 
+          mutate(`EFO URI`=MAPPED_TRAIT_URI) %>% 
+          separate_rows(`EFO URI`, sep = ", ",convert = TRUE) %>% 
+          left_join(efo) %>% 
+          mutate(Label=row_number())
+        
+gnomad <- gnomad_raw
+colnames(gnomad) <- c("Variant","rsID","AF")
+gnomad <- gnomad %>% 
+          mutate(gnomADLink=paste0("<a target = '_blank' href= ", "https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4",">","https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4","</a>"))
+
+gwas_raw_flt_asso <- gwas_raw_flt_asso %>% 
+          left_join(gnomad,by=c("SNPS"="rsID"))
+        clinvar <- clinvar_raw
+        clinvar <- clinvar %>% 
+          mutate(Variant=paste0(V1,"-",V2,"-",V4,"-",V5)) %>% 
+          dplyr::select(Variant,V6)
+        colnames(clinvar) <- c("Variant","ClinVar")
+        gwas_raw_flt_asso <- gwas_raw_flt_asso %>% 
+          left_join(clinvar)
+        
+gwas_raw_flt_asso <- gwas_raw_flt_asso %>% 
+          group_by(Label) %>% 
+          mutate(Variant=paste0(Variant,collapse = "; "),
+                 AF=paste0(AF,collapse = "; "),
+                 gnomADLink=paste0(gnomADLink,collapse = "; "),
+                 ClinVar=paste0(ClinVar,collapse = "; ")
+          ) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+        
+        
+gwas_raw_flt_asso <- gwas_raw_flt_asso %>% 
+          group_by(Gene,Variant,SNPS,AF,gnomADLink,ClinVar) %>%
+          summarise(
+            Category=paste0(na.omit(unique(`Parent term`)),collapse = "; "),
+            Phenotype=paste0(na.omit(unique(MAPPED_TRAIT)),collapse = "; ")
+          ) %>%
+          ungroup() 
+colnames(gwas_raw_flt_asso) <- c("Gene","GWASCatalogVariant","rsID","GWASCatalogAF","GWASCataloggnomADLink","GWASCatalogClinVar","GWASCatalogCategory","GWASCatalogPhenotype") 
+} else {
+  gwas_raw_flt_asso <- data.frame(
+    Gene=NA,
+    GWASCatalogVariant=NA,
+    rsID=NA,
+    GWASCatalogAF=NA,
+    GWASCataloggnomADLink=NA,
+    GWASCatalogClinVar=NA,
+    GWASCatalogCategory=NA,
+    GWASCatalogPhenotype=NA
+  ) %>% 
+    na.omit() %>% 
+    as.tibble()
+  gwas_raw_flt_asso$Gene <- as.character(gwas_raw_flt_asso$Gene)
+  gwas_raw_flt_asso$rsID <- as.character(gwas_raw_flt_asso$rsID)
+}
+
+        
+
+
+
+#FinnGen 
+finngen_raw_flt_asso <- finngen_raw_flt %>% 
+          mutate(gnomADLink=paste0("<a target = '_blank' href= ", "https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4",">","https://gnomad.broadinstitute.org/variant/",Variant,"?dataset=gnomad_r4","</a>")) %>% 
+          dplyr::select(Gene,Variant,rsID,AF,gnomADLink, ClinVar,phenotype,category) %>% 
+          group_by(Gene,Variant,rsID,AF,gnomADLink, ClinVar) %>% 
+          summarise(
+            Category=paste0(na.omit(unique(category)),collapse = "; "),
+            Phenotype=paste0(na.omit(unique(phenotype)),collapse = "; ")
+          ) %>%
+          ungroup()
+colnames(finngen_raw_flt_asso) <- c("Gene","Variant","rsID","AF","gnomADLink","ClinVar","FinnGenCategory","FinnGenPhenotype")
+
+ 
+summary_var <- az_var_asso %>% 
+          full_join(gwas_raw_flt_asso) %>% 
+          full_join(finngen_raw_flt_asso) 
+        
+summary_var$Variant[is.na(summary_var$Variant)] <- summary_var$GWASCatalogVariant[is.na(summary_var$Variant)]
+
+
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+        
+summary_var <- summary_var %>% 
+          left_join(gene_change) %>% 
+          dplyr::select(Group,everything())
+    
+summary_var %>% 
+          DT::datatable(escape = FALSE,
+                        rownames = FALSE,
+                        plugins = "ellipsis",
+                        extensions = 'Buttons',
+                        options = list(
+                          
+                          buttons = list(
+                            list(extend = "csv", text = "Download Full Results", filename = "Full_data",
+                                 exportOptions = list(
+                                   modifier = list(page = "all"),
+                                   orthogonal = "export"
+                                 )
+                            )
+                          ),
+                          dom = 'Bfrtip',
+                          buttons = c('copy', 'csv'),
+                          columnDefs = list(list(
+                            targets = c(7:10,12:16),
+                            render = JS("$.fn.dataTable.render.ellipsis(17, false )")
+                          ))
+                        )) 
+        
+        
+        
+```
+
+
+
+
+<br>
+
+<br>
+
+<hr>
+
+<br>
+
+
+## AstraZeneca PheWAS Portal {.tabset}
+
+### Phenotypic Profile Clustering
+
+Phenotypic profile clustering is performed by grouping genes according to their associations with upper-level phenotype categories. For each category, significant variant-phenotype associations for each gene are assessed, followed by hierarchical clustering. This analysis highlights genes with similar phenotype associations. The x-axis represents genes, and the y-axis represents phenotype categories. The color indicates whether there is a significant association of each gene across phenotype categories: red represents a significant association, while white represents no significant association.
+
+
+```{r,fig.width=20,fig.height=15,warning=FALSE,message=FALSE}
+#AstraZeneca PheWAS Portal
+az_gene_binary_flt_sum <- az_gene_binary_flt %>% 
+          dplyr::select(Gene,Category,Phenotype)
+az_gene_continuous_flt_sum <- az_gene_continuous_flt %>% 
+          dplyr::select(Gene,Category,Phenotype)
+az_var_binary_flt_sum  <- az_var_binary_flt %>% 
+          dplyr::select(Gene,Category,Phenotype)
+az_var_continuous_flt_sum <- az_var_continuous_flt %>% 
+          dplyr::select(Gene,Category,Phenotype)
+        
+az_sum <- do.call(rbind,list(az_gene_binary_flt_sum,az_gene_continuous_flt_sum,az_var_binary_flt_sum,az_var_continuous_flt_sum))
+
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+az_sum <-az_sum %>% 
+          left_join(gene_change) %>% 
+          group_by(Group,Gene,Category) %>% 
+          summarise(
+            n=length(unique(Phenotype)))  %>% 
+          ungroup()  %>% 
+          mutate(n=ifelse(n>1,1,n))
+
+#Summary table and figure
+ multi_gene <- az_sum %>% 
+          group_by(Group,Gene) %>% 
+          dplyr::slice(1) %>% 
+          ungroup() %>% 
+          group_by(Gene) %>% 
+          mutate(n=n()) %>% 
+          filter(n>1) %>% 
+          ungroup()
+        
+        
+az_sum_pheat <- az_sum %>% 
+          pivot_wider(
+            names_from = "Category",
+            values_from = "n",
+            values_fill = 0
+          ) %>% 
+  as.data.frame()
+        
+rownames(az_sum_pheat) <- az_sum_pheat$Gene
+
+
+ if (nrow(az_sum_pheat)>0) {
+          az_sum_pheat <- az_sum_pheat
+          ann <- data.frame(az_sum_pheat$Group)
+          rownames(ann) <- az_sum_pheat$Gene
+          colnames(ann) <- "Group"
+          
+          if (nrow(az_sum_pheat) < 2) {
+        plot_exception("Error:Must have n >= 2 objects to cluster")
+          } else {
+          
+          
+          az_sum_pheat <- az_sum_pheat[,-c(1,2)]
+          
+          set.seed(1111)
+          n1 <- length(unique(ann$Group))
+          col1=distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+          names(col1) <- unique(ann$Group)
+          
+          ann_colors = list(
+            Group = col1
+          )
+          
+          ComplexHeatmap::pheatmap(t(az_sum_pheat),
+                                   angle_col = "45",
+                                   name=str_wrap("Significant association within the gene",20),
+                                   row_labels = str_wrap(rownames(t(az_sum_pheat)),30),
+                                   annotation_col = ann,
+                                   color = c("white", "red"),
+                                   legend = F,
+                                   main = "AstraZeneca PheWAS Portal",
+                                   annotation_colors = ann_colors)
+          }
+          
+        } else {
+          plot_exception("No significant association within the gene list")
+        }
+
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+
+
+### Phenotype Distribution Overview
+
+The phenotype distribution overview section visualizes phenotype association patterns across different gene set groups. It aggregates all phenotypes associated with each gene list within each phenotype category, either by counting unique phenotypes or calculating the proportions of genes.
+
+
+```{r,fig.width=10}
+#AstraZeneca PheWAS Portal
+az_var_binary_flt_pheno <- az_var_binary_flt %>% 
+  dplyr::select(Category,Phenotype,Gene,rsID)
+az_var_continuous_flt_pheno <- az_var_continuous_flt %>% 
+  dplyr::select(Category,Phenotype,Gene,rsID)
+az_var_flt_pheno <- do.call(rbind,list(az_var_binary_flt_pheno,az_var_continuous_flt_pheno))
+
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+          mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+          ungroup() %>% 
+          group_by(Group,Gene) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+az_var_flt_pheno <- az_var_flt_pheno %>% 
+  left_join(gene_change) %>% 
+  group_by(Group,Category) %>% 
+  summarise(n_pheno = length(unique(Phenotype)),
+            Gene=paste0(unique(Gene),collapse = "; "),
+            Phenotype=paste0(unique(Phenotype),collapse = "; "),
+            rsID = paste0(unique(rsID),collapse = "; ")
+            ) %>% 
+  ungroup()
+
+
+if (nrow(az_var_flt_pheno)>0) {
+         p <- az_var_flt_pheno %>% 
+  ggplot(aes(x=n_pheno,y=Category,
+             fill=Group,
+             label=Gene,label2=rsID,label3=Phenotype
+             ))+
+  geom_col()+
+  facet_grid(~Group) +
+     theme(
+           legend.position = "none"
+           )+
+  labs(x="The unique phenotype number",y="Phenotype Category")+
+  theme_bw()
+
+#ggplotly format
+ggplotly(p,tooltip=c("Gene", "rsID","Phenotype")) %>%
+  layout(autosize = T, width = 1200, height = 600)
+
+        } else {
+          plot_exception("No significant association within the gene list")
+
+        }
+
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+<br>
+
+**Proportions of Gene Sets**
+
+```{r,fig.width=10}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+          mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+          ungroup() %>% 
+          group_by(Group,Gene) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+gene_number <- gene_change %>% 
+  group_by(Group) %>% 
+  mutate(GeneNumber=length(unique(Gene))) %>% 
+  ungroup()
+az_var_binary_flt_pheno_pro <- az_var_binary_flt %>% 
+  dplyr::select(Category,Phenotype,Gene,rsID)
+az_var_continuous_flt_pheno_pro <- az_var_continuous_flt %>% 
+  dplyr::select(Category,Phenotype,Gene,rsID)
+az_var_flt_pheno_pro <- do.call(rbind,list(az_var_binary_flt_pheno_pro,az_var_continuous_flt_pheno_pro))
+
+az_var_flt_pheno_pro <- az_var_flt_pheno_pro %>% 
+  left_join(gene_number) %>% 
+  group_by(Group,GeneNumber,Category) %>% 
+  summarise(n_gene = length(unique(Gene)),
+            Gene=paste0(unique(Gene),collapse = "; "),
+            Phenotype=paste0(unique(Phenotype),collapse = "; "),
+            rsID = paste0(unique(rsID),collapse = "; ")
+            ) %>% 
+  ungroup() %>% 
+  mutate(GeneFraction=n_gene/GeneNumber*100)
+
+
+if (nrow(az_var_flt_pheno_pro)>0) {
+          p <- az_var_flt_pheno_pro %>% 
+  ggplot(aes(x=GeneFraction,y=Category,
+             fill=Group,
+             label=Gene,label2=rsID,label3=Phenotype
+             ))+
+  geom_col()+
+  facet_grid(~Group) +
+     theme(
+           legend.position = "none"
+           )+
+  labs(x="Percentage of genes in each gene set group",y="Phenotype Category") +
+  theme_bw()
+
+#ggplotly format
+ggplotly(p,tooltip=c("Gene", "rsID","Phenotype")) %>%
+  layout(autosize = T, width = 1200, height = 600)
+        } else {
+          plot_exception("No significant association within the gene list")
+        }
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+<br>
+<hr>
+
+
+### Variant-Phenotype Gene Effect
+
+The mean effect of each gene across various phenotype categories is calculated by averaging the odds ratios or absolute effect sizes from all significant variant-phenotype associations within each gene, for both binary and continuous phenotypes. This reflects the estimated overall effect of each gene within each phenotype category.
+
+
+
+```{r,fig.width=20,fig.height=20}
+#AstraZeneca PheWAS Portal
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+          mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+          ungroup() %>% 
+          group_by(Group,Gene) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+        
+#AstraZeneca PheWAS Portal
+az_var_binary_flt_pheno_effect <- az_var_binary_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category,`Odds ratio`,Model) %>% 
+          left_join(gene_change) %>% 
+          group_by(Group,Gene,Category) %>% 
+          mutate(MeanEffect=mean(`Odds ratio`)) %>% 
+          ungroup() %>% 
+          group_by(Group,Gene,Category,MeanEffect) %>% 
+          summarise(
+            Phenotype=paste0(unique(Phenotype),collapse = "; "),
+            Variant=paste0(unique(Phenotype),collapse = "; "),
+            Model=paste0(unique(Model),collapse = "; ")
+          ) %>% 
+          ungroup() %>% 
+          mutate(Trait="Binary")
+
+az_var_continuous_flt_pheno_effect <- az_var_continuous_flt %>% 
+          dplyr::select(Gene,Variant,Phenotype,Category,`Effect size`,Model) %>% 
+          left_join(gene_change) %>% 
+          group_by(Group,Gene,Category) %>% 
+          mutate(MeanEffect=mean(abs(`Effect size`))) %>% 
+          ungroup() %>% 
+          group_by(Group,Gene,Category,MeanEffect) %>% 
+          summarise(
+            Phenotype=paste0(unique(Phenotype),collapse = "; "),
+            Variant=paste0(unique(Phenotype),collapse = "; "),
+            Model=paste0(unique(Model),collapse = "; ")
+          ) %>% 
+          ungroup() %>% 
+          mutate(Trait="Continuous")
+az_var_flt_pheno_effect <- do.call(rbind,list(az_var_binary_flt_pheno_effect,az_var_continuous_flt_pheno_effect))
+        
+        
+
+if (nrow(az_var_flt_pheno_effect)>0) {
+          az_var_flt_pheno_effect <- az_var_flt_pheno_effect
+          az_var_flt_pheno_effect_size <- az_var_flt_pheno_effect %>% 
+            group_by(Category) %>% 
+            summarise(n=n()) %>% 
+            ungroup() %>% 
+            mutate(size=(n/10+0.4))
+          
+          az_var_flt_pheno_effect %>%
+            mutate(MeanEffect=ifelse(MeanEffect>10,10,MeanEffect)) %>% 
+            ggplot(aes(x=log10(MeanEffect),y=Category,
+                       fill=Group,
+                       color=Group,
+                       label=Gene
+            ))+
+            geom_jitter(position = position_dodge2(0.9))+
+            facet_grid(Category~Trait,scales = "free",space = "free") +
+            theme_bw()+
+            theme(
+              strip.text.y = element_blank()
+            )+
+            labs(x="Log10(MeanEffect) (Odds ratio or Effect size)",y="Phenotype Category")+
+            ggrepel::geom_text_repel(position = position_dodge2(0.9),max.overlaps = 50)+
+            ggh4x::force_panelsizes(rows = az_var_flt_pheno_effect_size$size)
+        } else {
+         plot_exception("No significant association within the gene list")
+      
+        }
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+
+```{r}
+#Table
+az_var_flt_pheno_effect %>% 
+          dplyr::select(Group,Gene,Category,Phenotype,Variant,Model,Trait,MeanEffect) %>% 
+          mutate_if(is.numeric, round, digits = 3)  %>% 
+        DT::datatable(escape = FALSE,
+                      rownames = FALSE,
+                      plugins = "ellipsis",
+                      extensions = 'Buttons',
+                      options = list(
+                        
+                        buttons = list(
+                          list(extend = "csv", text = "Download Full Results", filename = "Full_data",
+                               exportOptions = list(
+                                 modifier = list(page = "all"),
+                                 orthogonal = "export"
+                               )
+                          )
+                        ),
+                        dom = 'Bfrtip',
+                        buttons = c('copy', 'csv'),
+                        columnDefs = list(list(
+                          targets = c(3:4),
+                          render = JS("$.fn.dataTable.render.ellipsis(17, false )")
+                        ))
+                      ))
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+<br>
+<br>
+
+<br>
+<br>
+<br>
+<br>
+
+
+
+## GWAS Catalog {.tabset}
+
+### Phenotypic Profile Clustering
+
+Phenotypic profile clustering is performed by grouping genes according to their associations with upper-level phenotype categories. For each category, significant variant-phenotype associations for each gene are assessed, followed by hierarchical clustering. This analysis highlights genes with similar phenotype associations. The x-axis represents genes, and the y-axis represents phenotype categories. The color indicates whether there is a significant association of each gene across phenotype categories: red represents a significant association, while white represents no significant association.
+
+
+```{r,fig.width=25,fig.height=15,warning=FALSE,message=FALSE}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+gene_number <- gene_change %>%
+          group_by(Group) %>%
+          mutate(GeneNumber=length(unique(Gene))) %>%
+          ungroup()
+efo <- efo_raw %>%
+          dplyr::select(`Parent term`,`EFO URI`) %>%
+          group_by(`EFO URI`) %>%
+          dplyr::slice(1) %>%
+          ungroup()
+
+#Each gene each trait only select one
+
+if (nrow(gwas_raw_flt) >0) {
+  gwas_raw_flt_gene_sum <- gwas_raw_flt %>%
+          left_join(gene_number) %>%
+          mutate(`EFO URI`=MAPPED_TRAIT_URI) %>%
+          separate_rows(`EFO URI`, sep = ", ",convert = TRUE) %>%
+          left_join(efo) %>%
+          dplyr::select(Group,`Parent term`,MAPPED_TRAIT,Gene,SNPS) %>%
+          group_by(Group,Gene,`Parent term`) %>%
+          summarise(
+            n=length(unique(SNPS)))  %>%
+          ungroup()  %>%
+          mutate(n=ifelse(n>1,1,n))
+
+#Summary table and figure
+multi_gene <- gwas_raw_flt_gene_sum %>%
+          group_by(Group,Gene) %>%
+          dplyr::slice(1) %>%
+          ungroup() %>%
+          group_by(Gene) %>%
+          mutate(n=n()) %>%
+          filter(n>1) %>%
+          ungroup()
+
+gwas_raw_flt_gene_sum_pheat <- gwas_raw_flt_gene_sum %>%
+          pivot_wider(
+            names_from = `Parent term`,
+            values_from = "n",
+            values_fill = 0
+          )
+
+gwas_raw_flt_gene_sum_pheat <- gwas_raw_flt_gene_sum_pheat %>%
+          mutate(Gene=ifelse((Gene %in% multi_gene$Gene),paste0(Gene,"_",Group),Gene)) %>%
+          as.data.frame()
+rownames(gwas_raw_flt_gene_sum_pheat) <- gwas_raw_flt_gene_sum_pheat$Gene
+} else {
+  gwas_raw_flt_gene_sum_pheat <- NULL
+}
+
+
+
+
+
+#Figure
+if (is.null(gwas_raw_flt_gene_sum_pheat)==FALSE) {
+
+  # Prepare the annotation and data for heatmap
+  gwas_raw_flt_gene_sum_pheat <- gwas_raw_flt_gene_sum_pheat
+  ann <- data.frame(gwas_raw_flt_gene_sum_pheat$Group)
+  rownames(ann) <- gwas_raw_flt_gene_sum_pheat$Gene
+  colnames(ann) <- "Group"
+  
+   if (nrow(gwas_raw_flt_gene_sum_pheat) < 2) {
+        plot_exception("Error:Must have n >= 2 objects to cluster")
+   } else {
+  
+  gwas_raw_flt_gene_sum_pheat <- gwas_raw_flt_gene_sum_pheat[,-c(1,2)]
+
+  # Set random seed and color palette
+  set.seed(1111)
+  n1 <- length(unique(ann$Group))
+  col1 <- distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+  names(col1) <- unique(ann$Group)
+  ann_colors <- list(Group = col1)
+
+  # Check for distinct values in the data for the heatmap
+    ComplexHeatmap::pheatmap(t(gwas_raw_flt_gene_sum_pheat),
+                             angle_col = "45",
+                             name = str_wrap("Significant association within the gene", 20),
+                             row_labels = str_wrap(rownames(t(gwas_raw_flt_gene_sum_pheat)), 30),
+                             annotation_col = ann,
+                             color = c("white", "red"),
+                             legend = FALSE,
+                             main = "GWAS Catalog",
+                             annotation_colors = ann_colors)
+}
+    
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+```
+
+<br>
+<br>
+<br>
+<hr>
+
+
+### Phenotype Distribution Overview
+
+The phenotype distribution overview section visualizes phenotype association patterns across different gene set groups. It aggregates all phenotypes associated with each gene list within each phenotype category, either by counting unique phenotypes or calculating the proportions of genes.
+
+
+```{r,fig.width=12,fig.height=10}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+gene_number <- gene_change %>% 
+          group_by(Group) %>% 
+          mutate(GeneNumber=length(unique(Gene))) %>% 
+          ungroup()
+ 
+efo <- efo_raw %>% 
+          dplyr::select(`Parent term`,`EFO URI`) %>% 
+          group_by(`EFO URI`) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+        
+#Each gene each trait only select one
+if (nrow(gwas_raw_flt)>0) {
+  gwas_raw_flt_gene <- gwas_raw_flt %>% 
+          left_join(gene_number) %>% 
+          mutate(`EFO URI`=MAPPED_TRAIT_URI) %>% 
+          separate_rows(`EFO URI`, sep = ", ",convert = TRUE) %>% 
+          left_join(efo) %>% 
+          dplyr::select(Group,`Parent term`,MAPPED_TRAIT,Gene,SNPS) %>% 
+          group_by(Group,`Parent term`) %>% 
+          mutate(
+            n=length(unique(MAPPED_TRAIT)),
+            Phenotype=paste0(unique(MAPPED_TRAIT),collapse = "; "),
+            rsids = paste0(unique(SNPS),collapse = "; "),
+            Gene = paste0(unique(Gene),collapse = "; ")) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+} else {
+  gwas_raw_flt_gene <- NULL
+}
+
+
+if (is.null(gwas_raw_flt_gene) ==FALSE) {
+  p <- gwas_raw_flt_gene %>% 
+          ggplot(aes(x=n,y=`Parent term`,
+                     fill=Group,
+                     label=Gene,label2=SNPS,label3=Phenotype
+          ))+
+          geom_col()+
+          facet_grid(~Group,scales = "free_y",space = "free") +
+          theme(
+            legend.position = "none"
+          )+
+          labs(x="The unique phenotype number",y="MAPPED_TRAIT") +
+          theme_bw()
+        
+        #ggplotly format
+    ggplotly(p,tooltip=c("Gene", "SNPS","Phenotype")) %>%
+          layout(autosize = T, width = 1200, height = 600)
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+
+```
+
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+
+**Proportions of Gene Sets**
+
+```{r,fig.width=12,fig.height=10}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+gene_number <- gene_change %>% 
+          group_by(Group) %>% 
+          mutate(GeneNumber=length(unique(Gene))) %>% 
+          ungroup()
+        
+efo <- efo_raw %>% 
+          dplyr::select(`Parent term`,`EFO URI`) %>% 
+          group_by(`EFO URI`) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()
+        
+#Each gene each trait only select one
+if (nrow(gwas_raw_flt)>0) {
+  gwas_raw_flt_gene_pro <- gwas_raw_flt %>% 
+          left_join(gene_number) %>% 
+          mutate(`EFO URI`=MAPPED_TRAIT_URI) %>% 
+          separate_rows(`EFO URI`, sep = ", ",convert = TRUE) %>% 
+          left_join(efo) %>% 
+          dplyr::select(Group,GeneNumber,`Parent term`,MAPPED_TRAIT,Gene,SNPS) %>% 
+          group_by(Group,GeneNumber,`Parent term`) %>% 
+          mutate(
+            n=length(unique(Gene)),
+            Phenotype=paste0(unique(MAPPED_TRAIT),collapse = "; "),
+            rsids = paste0(unique(SNPS),collapse = "; "),
+            Gene = paste0(unique(Gene),collapse = "; ")) %>% 
+          dplyr::slice(1) %>% 
+          ungroup()  %>% 
+          mutate(GeneFraction=n/GeneNumber*100)
+} else {
+  gwas_raw_flt_gene_pro <- NULL
+}
+
+
+if (is.null(gwas_raw_flt_gene_pro) ==FALSE) {
+ p <- gwas_raw_flt_gene_pro %>% 
+          ggplot(aes(x=GeneFraction,y=`Parent term`,
+                     #color=MultiGene,
+                     fill=Group,
+                     label=Gene,label2=SNPS,label3=Phenotype
+          ))+
+          geom_col()+
+          facet_grid(~Group,scales = "free_y",space = "free") +
+          theme(
+            legend.position = "none"
+          )+
+          labs(x="Percentage of genes in each gene set group",y="MAPPED_TRAIT") +
+          theme_bw()
+        
+        #ggplotly format
+        ggplotly(p,tooltip=c("Gene", "SNPS","Phenotype")) %>%
+          layout(autosize = T, width = 1200, height = 600)    
+} else {
+  plot_exception("No significant association within the gene list")
+}
+    
+        
+    
+
+```
+
+
+<br>
+<br>
+<br>
+<br>
+
+
+## FinnGen {.tabset}
+
+### Phenotypic Profile Clustering
+
+Phenotypic profile clustering is performed by grouping genes according to their associations with upper-level phenotype categories. For each category, significant variant-phenotype associations for each gene are assessed, followed by hierarchical clustering. This analysis highlights genes with similar phenotype associations. The x-axis represents genes, and the y-axis represents phenotype categories. The color indicates whether there is a significant association of each gene across phenotype categories: red represents a significant association, while white represents no significant association.
+
+
+**Cluster ICD-classification**
+
+```{r,fig.width=20,fig.height=15,warning=FALSE,message=FALSE}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+finngen_raw_flt_gene <- finngen_raw_flt %>%
+  left_join(gene_change)
+finngen_raw_flt_gene <- finngen_raw_flt_gene %>%
+  mutate(Endpoint=ifelse(category %in%
+           c("I Certain infectious and parasitic diseases (AB1_)",
+             "XI Diseases of the digestive system (K11_)",
+             "IV Endocrine, nutritional and metabolic diseases (E4_)",
+             "II Neoplasms, from cancer register (ICD-O-3)",
+             "II Neoplasms from hospital discharges (CD2_)",
+             "III Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism (D3_)",
+             "XIII Diseases of the musculoskeletal system and connective tissue (M13_)",
+             "VII Diseases of the eye and adnexa (H7_)",
+             "V Mental and behavioural disorders (F5_)",
+             "IX Diseases of the circulatory system (I9_)",
+             "VI Diseases of the nervous system (G6_)",
+             "VIII Diseases of the ear and mastoid process (H8_)",
+             "X Diseases of the respiratory system (J10_)",
+             "XII Diseases of the skin and subcutaneous tissue (L12_)",
+             "XIV Diseases of the genitourinary system (N14_)",
+             "XV Pregnancy, childbirth and the puerperium (O15_)",
+             "XVI Certain conditions originating in the perinatal period (P16_)",
+             "XVII Congenital malformations, deformations and chromosomal abnormalities (Q17)",
+             "XXI Factors influencing health status and contact with health services (Z21_)"
+
+             ), "ICD-classification", "Specific requests")
+
+         )
+finngen_raw_flt_gene_sum_icd <- finngen_raw_flt_gene %>% 
+  filter(Endpoint=="ICD-classification") %>% 
+  group_by(Group,Gene,category) %>% 
+  summarise(n=length(unique(Variant))) %>% 
+  ungroup() %>% 
+  mutate(n=ifelse(n>1,1,n))
+
+#Summary table and figure
+finngen_raw_flt_gene_sum_icd <- finngen_raw_flt_gene_sum_icd
+multi_gene <- finngen_raw_flt_gene_sum_icd %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  group_by(Gene) %>% 
+  mutate(n=n()) %>% 
+  filter(n>1) %>% 
+  ungroup()
+
+
+finngen_raw_flt_gene_sum_icd_pheat <- finngen_raw_flt_gene_sum_icd %>% 
+  pivot_wider(
+    names_from = "category",
+    values_from = "n",
+    values_fill = 0
+  )
+
+finngen_raw_flt_gene_sum_icd_pheat <- finngen_raw_flt_gene_sum_icd_pheat %>% 
+  mutate(Gene=ifelse((Gene %in% multi_gene$Gene),paste0(Gene,"_",Group),Gene)) %>% 
+  as.data.frame()
+rownames(finngen_raw_flt_gene_sum_icd_pheat) <- finngen_raw_flt_gene_sum_icd_pheat$Gene
+
+
+if (nrow(finngen_raw_flt_gene_sum_icd_pheat) > 0) {
+
+  # Prepare the annotation and data for heatmap
+  ann <- data.frame(finngen_raw_flt_gene_sum_icd_pheat$Group)
+  rownames(ann) <- finngen_raw_flt_gene_sum_icd_pheat$Gene
+  colnames(ann) <- "Group"
+  
+   if (nrow(finngen_raw_flt_gene_sum_icd_pheat) < 2) {
+        plot_exception("Error:Must have n >= 2 objects to cluster")
+          } else {
+          
+  
+  finngen_raw_flt_gene_sum_icd_pheat <- finngen_raw_flt_gene_sum_icd_pheat[,-c(1,2)]
+
+  # Set random seed and color palette
+  set.seed(1111)
+  n1 <- length(unique(ann$Group))
+  col1 <- distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+  names(col1) <- unique(ann$Group)
+
+  ann_colors <- list(Group = col1)
+
+  # Check for distinct values in the data for the heatmap
+    ComplexHeatmap::pheatmap(t(finngen_raw_flt_gene_sum_icd_pheat),
+                             angle_col = "45",
+                             name = str_wrap("Significant association within the gene", 20),
+                             row_labels = str_wrap(rownames(t(finngen_raw_flt_gene_sum_icd_pheat)), 30),
+                             annotation_col = ann,
+                             color = c("white", "red"),
+                             legend = FALSE,
+                             main = "Endpoints: ICD-classification",
+                             annotation_colors = ann_colors)
+    }
+  } else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+```
+
+<br>
+<br>
+<br>
+
+
+
+**Cluster Endpoints: specific requests**
+
+
+```{r,fig.width=20,fig.height=15,warning=FALSE,message=FALSE}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+finngen_raw_flt_gene <- finngen_raw_flt %>%
+  left_join(gene_change)
+finngen_raw_flt_gene <- finngen_raw_flt_gene %>%
+  mutate(Endpoint=ifelse(category %in%
+           c("I Certain infectious and parasitic diseases (AB1_)",
+             "XI Diseases of the digestive system (K11_)",
+             "IV Endocrine, nutritional and metabolic diseases (E4_)",
+             "II Neoplasms, from cancer register (ICD-O-3)",
+             "II Neoplasms from hospital discharges (CD2_)",
+             "III Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism (D3_)",
+             "XIII Diseases of the musculoskeletal system and connective tissue (M13_)",
+             "VII Diseases of the eye and adnexa (H7_)",
+             "V Mental and behavioural disorders (F5_)",
+             "IX Diseases of the circulatory system (I9_)",
+             "VI Diseases of the nervous system (G6_)",
+             "VIII Diseases of the ear and mastoid process (H8_)",
+             "X Diseases of the respiratory system (J10_)",
+             "XII Diseases of the skin and subcutaneous tissue (L12_)",
+             "XIV Diseases of the genitourinary system (N14_)",
+             "XV Pregnancy, childbirth and the puerperium (O15_)",
+             "XVI Certain conditions originating in the perinatal period (P16_)",
+             "XVII Congenital malformations, deformations and chromosomal abnormalities (Q17)",
+             "XXI Factors influencing health status and contact with health services (Z21_)",
+             "XIX Injury, poisoning and certain other consequences of external causes (ST19_)" 
+
+             ), "ICD-classification", "Specific requests")
+
+         )
+finngen_raw_flt_gene_sum_spe <- finngen_raw_flt_gene %>% 
+  filter(Endpoint=="Specific requests") %>% 
+  group_by(Group,Gene,category) %>% 
+  summarise(n=length(unique(Variant))) %>% 
+  ungroup() %>% 
+  mutate(n=ifelse(n>1,1,n))
+
+#Summary table and figure
+finngen_raw_flt_gene_sum_spe <- finngen_raw_flt_gene_sum_spe
+multi_gene <- finngen_raw_flt_gene_sum_spe %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  group_by(Gene) %>% 
+  mutate(n=n()) %>% 
+  filter(n>1) %>% 
+  ungroup()
+
+
+finngen_raw_flt_gene_sum_spe_pheat <- finngen_raw_flt_gene_sum_spe %>% 
+  pivot_wider(
+    names_from = "category",
+    values_from = "n",
+    values_fill = 0
+  )
+
+finngen_raw_flt_gene_sum_spe_pheat <- finngen_raw_flt_gene_sum_spe_pheat %>% 
+  mutate(Gene=ifelse((Gene %in% multi_gene$Gene),paste0(Gene,"_",Group),Gene)) %>% 
+  as.data.frame()
+rownames(finngen_raw_flt_gene_sum_spe_pheat) <- finngen_raw_flt_gene_sum_spe_pheat$Gene
+
+
+if (nrow(finngen_raw_flt_gene_sum_spe_pheat)>0) {
+  ann <- data.frame(finngen_raw_flt_gene_sum_spe_pheat$Group)
+rownames(ann) <- finngen_raw_flt_gene_sum_spe_pheat$Gene
+colnames(ann) <- "Group"
+
+ if (nrow(finngen_raw_flt_gene_sum_spe_pheat) < 2) {
+        plot_exception("Error:Must have n >= 2 objects to cluster")
+          } else {
+          
+
+finngen_raw_flt_gene_sum_spe_pheat <- finngen_raw_flt_gene_sum_spe_pheat[,-c(1,2)]
+
+
+set.seed(1111)
+n1 <- length(unique(ann$Group))
+col1=distinctColorPalette(k = n1, altCol = FALSE, runTsne = FALSE)
+names(col1) <- unique(ann$Group)
+
+ann_colors = list(
+    Group = col1
+)
+
+ComplexHeatmap::pheatmap(t(finngen_raw_flt_gene_sum_spe_pheat),
+                         angle_col = "45",
+                         name=str_wrap("Significant association within the gene",20),
+                         row_labels = str_wrap(rownames(t(finngen_raw_flt_gene_sum_spe_pheat)),30),
+                         annotation_col = ann,
+                         color = c("white", "red"),
+                        legend = F,
+                        main = "Endpoints: Specific requests",
+                         annotation_colors = ann_colors)
+
+}
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+
+
+
+
+
+
+
+
+
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+
+
+### Phenotype Distribution Overview
+
+The phenotype distribution overview section visualizes phenotype association patterns across different gene set groups. It aggregates all phenotypes associated with each gene list within each phenotype category, either by counting unique phenotypes or calculating the proportions of genes.
+
+
+
+```{r,fig.width=12,fig.height=10}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+finngen_raw_flt_gene <- finngen_raw_flt %>% 
+  left_join(gene_change)
+#select the lowest p value SNP for each gene each phenotype
+finngen_raw_flt_gene <- finngen_raw_flt_gene %>% 
+  group_by(Group,Gene,category,phenotype) %>% 
+  arrange(pval) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  dplyr::select(Group,category,phenotype,Gene,rsids) %>% 
+  group_by(Group,category) %>% 
+  mutate(
+         n=length(unique(phenotype)),
+         Phenotype=paste0(unique(phenotype),collapse = "; "),
+         rsids = paste0(unique(rsids),collapse = "; "),
+         Gene = paste0(unique(Gene),collapse = "; ")) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+finngen_raw_flt_gene <- finngen_raw_flt_gene %>% 
+  mutate(Endpoint=ifelse(category %in% 
+           c("I Certain infectious and parasitic diseases (AB1_)",
+             "XI Diseases of the digestive system (K11_)",
+             "IV Endocrine, nutritional and metabolic diseases (E4_)",
+             "II Neoplasms, from cancer register (ICD-O-3)",
+             "II Neoplasms from hospital discharges (CD2_)",
+             "III Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism (D3_)",
+             "XIII Diseases of the musculoskeletal system and connective tissue (M13_)",
+             "VII Diseases of the eye and adnexa (H7_)",
+             "V Mental and behavioural disorders (F5_)",
+             "IX Diseases of the circulatory system (I9_)",
+             "VI Diseases of the nervous system (G6_)",
+             "VIII Diseases of the ear and mastoid process (H8_)",
+             "X Diseases of the respiratory system (J10_)",
+             "XII Diseases of the skin and subcutaneous tissue (L12_)",
+             "XIV Diseases of the genitourinary system (N14_)",
+             "XV Pregnancy, childbirth and the puerperium (O15_)",
+             "XVI Certain conditions originating in the perinatal period (P16_)",
+             "XVII Congenital malformations, deformations and chromosomal abnormalities (Q17)",
+             "XXI Factors influencing health status and contact with health services (Z21_)"
+
+             ), "ICD-classification", "Specific requests")
+         
+         )
+
+
+if (nrow(finngen_raw_flt_gene)>0) {
+  p <- finngen_raw_flt_gene %>% 
+  ggplot(aes(x=n,y=category,
+             #color=MultiGene,
+             fill=Group,
+             label=Gene,label2=rsids,label3=Phenotype
+             ))+
+  geom_col()+
+  facet_grid(Endpoint~Group,scales = "free_y",space = "free") +
+     theme(
+           legend.position = "none"
+           )+
+  labs(x="The unique phenotype number",y="Endpoints (Phenotype)") +
+  theme_bw()
+
+#ggplotly format
+ggplotly(p,tooltip=c("Gene", "rsids","Phenotype")) %>%
+  layout(autosize = T, width = 1200, height = 800)
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+```
+
+
+
+
+
+**Proportions of Gene Sets**
+
+```{r,fig.width=12,fig.height=10}
+#finngen_raw_flt
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+gene_number <- gene_change %>% 
+  group_by(Group) %>% 
+  mutate(GeneNumber=length(unique(Gene))) %>% 
+  ungroup()
+
+finngen_raw_flt_gene_pro <- finngen_raw_flt %>% 
+  left_join(gene_number)
+
+#select the lowest p value SNP for each gene each phenotype
+finngen_raw_flt_gene_pro <- finngen_raw_flt_gene_pro %>% 
+  group_by(Group,Gene,category,phenotype) %>% 
+  arrange(pval) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  dplyr::select(Group,GeneNumber,category,phenotype,Gene,rsids) %>% 
+  group_by(Group,GeneNumber,category) %>% 
+  mutate(
+         n=length(unique(Gene)),
+         Phenotype=paste0(unique(phenotype),collapse = "; "),
+         rsids = paste0(unique(rsids),collapse = "; "),
+         Gene = paste0(unique(Gene),collapse = "; ")) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  mutate(GeneFraction=n/GeneNumber*100)
+
+
+
+finngen_raw_flt_gene_pro <- finngen_raw_flt_gene_pro %>% 
+  mutate(Endpoint=ifelse(category %in% 
+           c("I Certain infectious and parasitic diseases (AB1_)",
+             "XI Diseases of the digestive system (K11_)",
+             "IV Endocrine, nutritional and metabolic diseases (E4_)",
+             "II Neoplasms, from cancer register (ICD-O-3)",
+             "II Neoplasms from hospital discharges (CD2_)",
+             "III Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism (D3_)",
+             "XIII Diseases of the musculoskeletal system and connective tissue (M13_)",
+             "VII Diseases of the eye and adnexa (H7_)",
+             "V Mental and behavioural disorders (F5_)",
+             "IX Diseases of the circulatory system (I9_)",
+             "VI Diseases of the nervous system (G6_)",
+             "VIII Diseases of the ear and mastoid process (H8_)",
+             "X Diseases of the respiratory system (J10_)",
+             "XII Diseases of the skin and subcutaneous tissue (L12_)",
+             "XIV Diseases of the genitourinary system (N14_)",
+             "XV Pregnancy, childbirth and the puerperium (O15_)",
+             "XVI Certain conditions originating in the perinatal period (P16_)",
+             "XVII Congenital malformations, deformations and chromosomal abnormalities (Q17)",
+             "XXI Factors influencing health status and contact with health services (Z21_)"
+
+             ), "ICD-classification", "Specific requests")
+         
+         )
+
+if (nrow(finngen_raw_flt_gene_pro)>0) {
+  p <- finngen_raw_flt_gene_pro %>% 
+  ggplot(aes(x=GeneFraction,y=category,
+             #color=MultiGene,
+             fill=Group,
+             label=Gene,label2=rsids,label3=Phenotype
+             ))+
+  geom_col()+
+  facet_grid(Endpoint~Group,scales = "free_y",space = "free") +
+     theme(
+           legend.position = "none"
+           )+
+  labs(x="Percentage of genes in each gene set group",y="Endpoints (Phenotype)") +
+  theme_bw()
+
+#ggplotly format
+ggplotly(p,tooltip=c("Gene", "rsids","Phenotype")) %>%
+  layout(autosize = T, width = 1200, height = 800)
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+### Variant-Phenotype Gene Effect
+
+The mean effect of each gene across various phenotype categories is calculated by averaging the odds ratios or absolute effect sizes from all significant variant-phenotype associations within each gene, for both binary and continuous phenotypes. This reflects the estimated overall effect of each gene within each phenotype category.
+
+
+```{r,fig.width=20,fig.height=20}
+gene_change <- gene_raw %>% 
+          group_by(Gene) %>% 
+  mutate(Group=paste0(unique(Group),collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group,Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+finngen_raw_flt_gene_effect <- finngen_raw_flt %>% 
+  left_join(gene_change)
+
+#select the lowest p value SNP for each gene each phenotype
+finngen_raw_flt_gene_effect <- finngen_raw_flt_gene_effect %>% 
+  group_by(Group,Gene,category,phenotype) %>% 
+  arrange(pval) %>% 
+  dplyr::slice(1) %>% 
+  ungroup() %>% 
+  dplyr::select(Group,category,phenotype,Gene,rsids,beta) %>% 
+  group_by(Group,category,Gene) %>%
+  mutate(MeanEffect=mean(abs(beta))) %>% 
+  mutate(
+         Phenotype=paste0(unique(phenotype),collapse = "; "),
+         rsids = paste0(unique(rsids),collapse = "; ")
+         ) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+finngen_raw_flt_gene_effect <- finngen_raw_flt_gene_effect %>% 
+  mutate(Endpoint=ifelse(category %in% 
+           c("I Certain infectious and parasitic diseases (AB1_)",
+             "XI Diseases of the digestive system (K11_)",
+             "IV Endocrine, nutritional and metabolic diseases (E4_)",
+             "II Neoplasms, from cancer register (ICD-O-3)",
+             "II Neoplasms from hospital discharges (CD2_)",
+             "III Diseases of the blood and blood-forming organs and certain disorders involving the immune mechanism (D3_)",
+             "XIII Diseases of the musculoskeletal system and connective tissue (M13_)",
+             "VII Diseases of the eye and adnexa (H7_)",
+             "V Mental and behavioural disorders (F5_)",
+             "IX Diseases of the circulatory system (I9_)",
+             "VI Diseases of the nervous system (G6_)",
+             "VIII Diseases of the ear and mastoid process (H8_)",
+             "X Diseases of the respiratory system (J10_)",
+             "XII Diseases of the skin and subcutaneous tissue (L12_)",
+             "XIV Diseases of the genitourinary system (N14_)",
+             "XV Pregnancy, childbirth and the puerperium (O15_)",
+             "XVI Certain conditions originating in the perinatal period (P16_)",
+             "XVII Congenital malformations, deformations and chromosomal abnormalities (Q17)",
+             "XXI Factors influencing health status and contact with health services (Z21_)"
+
+             ), "ICD-classification", "Specific requests")
+         
+         )
+
+
+
+finngen_raw_flt_gene_effect_size <- finngen_raw_flt_gene_effect %>% 
+  group_by(category) %>% 
+  summarise(n=n()) %>% 
+  ungroup() %>% 
+  mutate(size=(n/10+0.4))
+ 
+
+
+if (nrow(finngen_raw_flt_gene_effect)>0) {
+  p <- finngen_raw_flt_gene_effect %>%
+  mutate(MeanEffect=ifelse(MeanEffect>10,10,MeanEffect)) %>% 
+  ggplot(aes(x=log10(MeanEffect),y=category,
+             fill=Group,
+             color=Group,
+             label=Gene
+             ))+
+  geom_jitter(position = position_dodge2(0.9))+
+  #geom_col(position = position_dodge2(preserve = "single", padding = 0.1))+
+  facet_grid(Endpoint~.,scales = "free",space = "free") +
+  theme_bw()+
+  labs(x="Log10(MeanEffect) (Odds ratio or Effect size)",y="Phenotype Category")+
+  ggrepel::geom_text_repel(position = position_dodge2(0.9),max.overlaps = 50)
+  p
+
+} else {
+  plot_exception("No significant association within the gene list")
+}
+
+
+```
+
+<br>
+<br>
+
+
+```{r}
+
+finngen_raw_flt_gene_effect %>% 
+  dplyr::select(Group,Gene,category,Phenotype,rsids,Endpoint,MeanEffect) %>% 
+  DT::datatable(
+                      #caption = 'This table shows the gene associated with different traits.',
+                      filter = 'top',
+                      extensions = 'Buttons',
+                      escape = FALSE,
+                      options = list(dom = 'Blfrtip',
+                                     buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+                                     lengthMenu = list(c(10,25,50,-1),
+                                                       c(10,25,50,"All")))
+        )
+
+```
+
+
+
+<br>
+<br>
+<br>
+<br>
+
+
+# <span style="color:blue">HPO Phenotype</span> {.tabset}
+
+This module enables visualization of phenotype enrichment results and comparative phenotype analysis of different gene sets using the HPO resource. This module integrates functions from the R package PhenoExam . For more information, please refer to the [**Paper**](https://bmcbioinformatics.biomedcentral.com/articles/10.1186/s12859-022-05122-x#citeas), and [**GitHub**](https://github.com/alexcis95/PhenoExam).
+
+
+## Phenotype Enrichment Visualization
+
+Phenotype enrichment analysis (HPO databases: 19,248 genes, 7,861 phenotypes, 186,290 Human gene-phenotype associations) on the gene set. The results display the top enriched terms for the gene set in a plot. This will display information about the phenotype term ID, term name, source of the term, Bonferroni-adjusted p-value for enrichment, the number of genes associated with the term in the database (genes_associated_in_db), the number of genes in gene sets linked to the term (gene_overlap), the overlap ratio (gene_overlap/genes_associated_in_db), the raw p-value, and the gene symbols of gene sets linked to the term.
+
+**PhenoExamWeb pvalues** ([**PhenoExam**](https://github.com/alexcis95/PhenoExam))
+![](/vast/projects/GeneSetPheno/GeneSetPheno/www/PhenoExamWeb_pvalues.png){width=100%}
+
+<br>
+<hr>
+
+
+
+
+```{r}
+group <- gene_raw %>% 
+  group_by(Gene) %>% 
+  mutate(Group = paste0(unique(Group), collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group, Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+group_info <- unique(group$Group)
+
+# Pre-allocate plot_list based on the number of unique groups
+plot_list <- vector("list", length(group_info))
+
+for (i in seq_along(group_info)) {
+  
+  # Filter the data for the current group
+  hpo_gene <- group %>%
+    filter(Group == group_info[[i]])
+  
+  # Extract the gene list
+  hpo_gene <- hpo_gene$Gene
+  
+  # Define the phenotype database
+  phedb <- c("HPO")
+  
+  # Perform the enrichment analysis and handle potential errors
+  tryCatch({
+    hpo_gene_enrich <- PhenoEnrichGenes(genes = hpo_gene, database = phedb)
+    
+    # Store the graph in the plot list
+    plot_list[[i]] <- hpo_gene_enrich$graph
+    
+  }, error = function(e) {
+    # If the specific error about valid keys occurs, print a custom message
+    if (grepl("None of the keys entered are valid keys for 'SYMBOL'", e$message)) {
+      message(paste0("None of the HPO database entered is valid keys for gene list 'SYMBOL' for group: ", group_info[[i]]))
+    } else {
+      # Print the original error message for other errors
+      message(paste0("Error for group: ", group_info[[i]], ": ", e$message))
+    }
+  })
+}
+
+
+
+
+# Convert plots to widgets and generate the final list, ignoring NULL entries
+plot_list <- lapply(1:length(group_info), 
+                    function(i) { 
+                      if (!is.null(plot_list[[i]])) {
+                        as.widget(plot_list[[i]]) 
+                      }
+                    })
+
+# Generate HTML output, again ignoring NULL entries
+htmltools::tagList(lapply(1:length(group_info), 
+                          function(i) {
+                            if (!is.null(plot_list[[i]])) {
+                              plot_list[[i]] %>% 
+                                layout(title = list(text = paste0("Phenotype Enrichment Analysis - ", group_info[[i]])))
+                            } else {
+                              return(plotly_exception("Error: 
+                              Please verify the gene symbol in your list 
+                              against the HGNC-approved gene names. 
+                              You can find the list here: 
+                              https://www.genenames.org/download/statistics-and-files/") %>% 
+                                layout(title = list(text = paste0("
+                                                                  Phenotype Enrichment Analysis - ", group_info[[i]])))) 
+                            }
+                          })
+)
+
+
+
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<hr>
+
+
+## Phenotype Enrichment Summary Table
+
+Phenotype enrichment analysis (HPO databases) on the gene set. The results display the top enriched terms for the gene set in a summary table. This will display information about the phenotype term ID, term name, source of the term, Bonferroni-adjusted p-value for enrichment, the number of genes associated with the term in the database (genes_associated_in_db), the number of genes in gene sets linked to the term (gene_overlap), the overlap ratio (gene_overlap/genes_associated_in_db), the raw p-value, and the gene symbols of gene sets linked to the term.
+
+<br>
+<hr>
+
+
+
+```{r}
+group <- gene_raw %>% 
+  group_by(Gene) %>% 
+  mutate(Group = paste0(unique(Group), collapse = "; ")) %>% 
+  ungroup() %>% 
+  group_by(Group, Gene) %>% 
+  dplyr::slice(1) %>% 
+  ungroup()
+
+group_info <- unique(group$Group)
+
+# Pre-allocate hpo_table_list based on the number of unique groups
+hpo_table_list <- vector("list", length(group_info))
+
+for (i in seq_along(group_info)) {
+  
+  # Filter the data for the current group
+  hpo_gene <- group %>%
+    filter(Group == group_info[[i]])
+  
+  # Extract the gene list
+  hpo_gene <- hpo_gene$Gene
+  
+  # Define the phenotype database
+  phedb <- c("HPO")
+  
+  # Perform the enrichment analysis and handle potential errors
+  tryCatch({
+    hpo_gene_enrich <- PhenoEnrichGenes(genes = hpo_gene, database = phedb)
+    
+    # Store the result in the table list
+    hpo_table_list[[i]] <- hpo_gene_enrich$htmltabla
+    
+  }, error = function(e) {
+    # If the specific error about valid keys occurs, print a custom message
+    if (grepl("None of the keys entered are valid keys for 'SYMBOL'", e$message)) {
+      message(paste0("None of the HPO database entered is valid keys for gene list 'SYMBOL' for group: ", group_info[[i]]))
+    } else {
+      # Print the original error message for other errors
+      message(paste0("Error for group: ", group_info[[i]], ": ", e$message))
+    }
+    # Set the current entry to NULL to avoid subscript errors
+    hpo_table_list[[i]] <- NULL
+  })
+}
+
+# Convert the results to widgets, ignoring NULL entries
+hpo_table_list <- lapply(seq_along(group_info), 
+                         function(i) { 
+                           if (!is.null(hpo_table_list[[i]])) {
+                             as.widget(hpo_table_list[[i]]) 
+                           }
+                         })
+
+# Generate HTML output for each datatable, ignoring NULL entries
+htmltools::tagList(lapply(seq_along(group_info), 
+                          function(i) {
+                            if (!is.null(hpo_table_list[[i]])) {
+                              hpo_table_list[[i]] %>% 
+                                DT::datatable(
+                                  caption = paste0("Phenotype Enrichment Analysis - ", group_info[[i]]),
+                                  filter = 'top',
+                                  extensions = 'Buttons',
+                                  escape = FALSE,
+                                  options = list(
+                                    dom = 'Blfrtip',
+                                    buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+                                    lengthMenu = list(c(10, 25, 50, -1),
+                                                      c(10, 25, 50, "All"))
+                                  )
+                                )
+                            } else {
+                              Error=data.frame(Error = "Error: Please verify the gene symbol in your list against the HGNC-approved gene names. You can find the list here: https://www.genenames.org/download/statistics-and-files/")
+                              return(Error %>% DT::datatable(caption = paste0("Phenotype Enrichment Analysis - ", group_info[[i]])))
+                            }
+                          })
+)
+
+
+
+
+```
+
+
+
+<br>
+<br>
+<br>
+<br>
+
+<br>
+
+<br>
+
+<hr>
+
+# <span style="color:blue">Contact</span>
+
+For any queries or suggestions, please contact Jiru Han: han.ji@wehi.edu.au
+
+<br>
+
+<br>
+
+<hr>
+
