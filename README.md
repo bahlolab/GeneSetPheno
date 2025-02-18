@@ -35,9 +35,3 @@ Landrum MJ, Lee JM, Riley GR, Jang W, Rubinstein WS, Church DM, Maglott DR. (201
 *Human Phenotype Ontology (HPO)*
 
 Gargano MA, Matentzoglu N, Coleman B, Addo-Lartey EB, Anagnostopoulos AV, Anderton J, Avillach P, Bagley AM, Bakštein E, Balhoff JP et al. (2024) The Human Phenotype Ontology in 2024: phenotypes around the world. Nucleic Acids Res. 52(D1):D1333-d1346.
-
-*Genotype-Tissue Expression (GTEx)*
-
-Lonsdale J, Thomas J, Salvatore M, Phillips R, Lo E, Shad S, Hasz R, Walters G, Garcia F, Young N et al. (2013) The Genotype-Tissue Expression (GTEx) project. Nature Genetics. 45(6):580-585.
-
-
