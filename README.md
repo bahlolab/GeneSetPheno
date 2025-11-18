@@ -8,6 +8,9 @@ GeneSetPheno is a user-friendly graphical interface application designed to inte
 
 https://shiny.wehi.edu.au/han.ji/GeneSetPheno/
 
+**Cite**
+
+If you use this **GeneSetPheno** resource, please acknowledge by citing Jiru Han, Zachary F Gerring, Longfei Wang, Melanie Bahlo, GeneSetPheno: a web application for the integration, summary, and visualization of gene and variant–phenotype associations across gene sets, Bioinformatics Advances, Volume 5, Issue 1, 2025, vbaf078, https://doi.org/10.1093/bioadv/vbaf078
 
 # Reference
 
